@@ -58,11 +58,10 @@ export default function MenuPage() {
           <div key={m.id} style={{ background:"#fff", borderRadius:12, padding:16, boxShadow:"0 2px 8px rgba(0,0,0,.08)" }}>
             {m.imageUrl && (
               <div style={{ position:"relative", width:"100%", borderRadius:12, overflow:"hidden", marginBottom:10 }}>
-                {/* Use intrinsic ratio; show full image without cropping */}
                 <Image
                   src={m.imageUrl}
                   alt={m.name}
-                  width={1200} height={800}             /* intrinsic ratio hint; any reasonable pair */
+                  width={1200} height={800}
                   sizes="(max-width: 640px) 100vw, (max-width: 980px) 90vw, 980px"
                   style={{ width:"100%", height:"auto", objectFit:"contain", display:"block" }}
                   priority={idx < 2}
@@ -87,11 +86,21 @@ export default function MenuPage() {
         ))}
       </div>
 
-      {/* Cart summary */}
-      <div style={{ position:"sticky", bottom: 0, background:"#111", color:"#fff", marginTop: 24, borderRadius:12, padding:12 }}>
-        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-          <div style={{ fontWeight:700 }}>Cart • {cart.length} items • {moneyFmt(subtotal)}</div>
-          <div><a href="/checkout" style={{ background:"#fff", color:"#111", padding:"8px 12px", borderRadius:8, textDecoration:"none" }}>Go to Checkout</a></div>
+      {/* Sticky cart with icon logo */}
+      <div style={{
+        position:"sticky", bottom: 0, background:"#111", color:"#fff",
+        marginTop: 24, borderRadius:12, padding:12
+      }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+            <Image src="/logo-icon.jpg" alt="MVPizza" width={28} height={28} style={{ borderRadius:6 }} />
+            <div style={{ fontWeight:700 }}>Cart • {cart.length} items • {moneyFmt(subtotal)}</div>
+          </div>
+          <div>
+            <a href="/checkout" style={{ background:"#fff", color:"#111", padding:"8px 12px", borderRadius:8, textDecoration:"none" }}>
+              Go to Checkout
+            </a>
+          </div>
         </div>
 
         {cart.length > 0 && (
