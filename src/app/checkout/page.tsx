@@ -1,8 +1,11 @@
 export const dynamic = "force-dynamic";   // disable SSG/ISR
-export const revalidate = 0;              // always render on request
-export const runtime = "nodejs";          // ensure Node runtime
+export const revalidate = 0;              // no caching
+export const runtime = "nodejs";
 
-import PaymentForm from "./PaymentForm";
+import dynamic from "next/dynamic";
+
+// Load PaymentForm only on the client (prevents any server render)
+const PaymentForm = dynamic(() => import("./PaymentForm"), { ssr: false });
 
 export default function CheckoutPage() {
   return (
