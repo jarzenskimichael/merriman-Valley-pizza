@@ -9,7 +9,11 @@ function cartToLineItems(cart: any[]) {
   const arr = cart.length > 0 ? cart : [
     { name: "Large Pepperoni Pizza", quantity: 1, basePriceMoney: { amount: 1999, currency: "USD" } }
   ];
-  return arr.map((l:any) => ({ name: l.name, quantity: String(l.quantity || 1), basePriceMoney: l.basePriceMoney }));
+  return arr.map((l:any) => ({
+    name: l.name,
+    quantity: String(l.quantity || 1),
+    basePriceMoney: l.basePriceMoney
+  }));
 }
 function cartTotalCents(cart: any[]) {
   const arr = cart.length > 0 ? cart : [{ quantity: 1, basePriceMoney: { amount: 1999 } }];
@@ -19,9 +23,13 @@ function cartTotalCents(cart: any[]) {
 export default function PaymentForm() {
   const [payments, setPayments] = useState<any>(null);
   const [card, setCard] = useState<any>(null);
+
   const [applePay, setApplePay] = useState<any>(null);
   const [googlePay, setGooglePay] = useState<any>(null);
   const [cashAppPay, setCashAppPay] = useState<any>(null);
+
+  const [appleAvailable, setAppleAvailable] = useState<boolean>(false);
+  const [googleAvailable, setGoogleAvailable] = useState<boolean>(false);
 
   const [pickupName, setPickupName] = useState("");
   const [pickupPhone, setPickupPhone] = useState("");
@@ -37,8 +45,9 @@ export default function PaymentForm() {
   useEffect(() => { setCart(loadCart()); }, []);
 
   useEffect(() => {
-    // if client envs missing, don’t try to load SDK
-    if (!appId || !locationId) return;
+    if (!appId || !locationId) return;            // missing envs → skip
+    if (!window.isSecureContext) return;          // wallets require https/secure context
+
     const script = document.createElement("script");
     script.src = jsSrc;
     script.async = true;
@@ -46,48 +55,67 @@ export default function PaymentForm() {
       const p = await window.Square?.payments(appId, locationId);
       setPayments(p);
 
-      // Card
+      // CARD
       try {
         const c = await p.card();
         await c.attach("#card-container");
         setCard(c);
-      } catch {}
+      } catch (e) { console.warn("card attach error", e); }
 
-      // Apple Pay
+      // APPLE PAY (Safari with Apple Pay set up)
       try {
         const ap = await p.applePay();
         const can = await ap?.canMakePayment();
+        setAppleAvailable(!!can);
         if (can) {
           setApplePay(ap);
-          const btn = document.getElementById("apple-pay-button");
-          if (btn) btn.style.display = "inline-flex";
+          const request = await p.paymentRequest({
+            countryCode: "US",
+            currencyCode: "USD",
+            total: { amount: ((total||0)/100).toFixed(2), label: "Merriman Valley Pizza" },
+          });
+          await ap.attach("#apple-pay-container", { paymentRequest: request });
+          ap.addEventListener("tokenization", async (ev: any) => {
+            if (ev?.status === "OK" && ev?.token) await completePaymentWithSource(ev.token);
+          });
         }
-      } catch {}
+      } catch (e) { console.warn("applePay error", e); }
 
-      // Google Pay
+      // GOOGLE PAY (Chrome/Android with GPay)
       try {
         const gp = await p.googlePay();
         const can = await gp?.canMakePayment();
+        setGoogleAvailable(!!can);
         if (can) {
           setGooglePay(gp);
-          const btn = document.getElementById("google-pay-button");
-          if (btn) btn.style.display = "inline-flex";
+          const request = await p.paymentRequest({
+            countryCode: "US",
+            currencyCode: "USD",
+            total: { amount: ((total||0)/100).toFixed(2), label: "Merriman Valley Pizza" },
+          });
+          await gp.attach("#google-pay-container", { paymentRequest: request });
+          gp.addEventListener("tokenization", async (ev: any) => {
+            if (ev?.status === "OK" && ev?.token) await completePaymentWithSource(ev.token);
+          });
         }
-      } catch {}
+      } catch (e) { console.warn("googlePay error", e); }
 
-      // Cash App Pay
+      // CASH APP PAY (works broadly; QR/redirect)
       try {
         const cap = await p.cashAppPay({
           redirectURL: window.location.origin + "/checkout",
           referenceId: String(Date.now()),
         });
         setCashAppPay(cap);
-        const btn = document.getElementById("cash-app-pay-button");
-        if (btn) btn.style.display = "inline-flex";
-      } catch {}
+        await cap.attach("#cash-app-pay-container");
+        cap.addEventListener("tokenization", async (ev: any) => {
+          if (ev?.status === "OK" && ev?.token) await completePaymentWithSource(ev.token);
+        });
+      } catch (e) { console.warn("cashAppPay error", e); }
     };
     document.body.appendChild(script);
-  }, [appId, locationId, jsSrc]);
+  // re-attach if total changes materially (e.g., cart updated on this screen)
+  }, [appId, locationId, jsSrc, total]);
 
   async function completePaymentWithSource(sourceId: string) {
     const r = await fetch("/api/square/checkout", {
@@ -118,16 +146,18 @@ export default function PaymentForm() {
     if (res.status !== "OK") { alert("Card tokenization failed"); return; }
     completePaymentWithSource(res.token);
   }
-  async function onPayApple() { /* unchanged, calls completePaymentWithSource(...) */ }
-  async function onPayGoogle() { /* unchanged, calls completePaymentWithSource(...) */ }
-  async function onPayCashApp() { /* unchanged, calls completePaymentWithSource(...) */ }
 
   return (
     <div className="space-y-4">
-      {/* Missing env banner */}
+      {/* Warnings if client envs missing or not secure */}
       {(!appId || !locationId) && (
         <div style={{ background:"#fff3cd", border:"1px solid #ffeeba", padding:12, borderRadius:8 }}>
-          <strong>Client envs missing:</strong> Set <code>NEXT_PUBLIC_SQUARE_APP_ID</code>, <code>NEXT_PUBLIC_SQUARE_LOCATION_ID</code>, and <code>NEXT_PUBLIC_SQUARE_JS_SRC</code> in Vercel → Project → Settings → Environment Variables (Production), then redeploy.
+          <strong>Client envs missing:</strong> Set <code>NEXT_PUBLIC_SQUARE_APP_ID</code>, <code>NEXT_PUBLIC_SQUARE_LOCATION_ID</code>, and <code>NEXT_PUBLIC_SQUARE_JS_SRC</code> in Vercel → Project → Settings → Environment Variables, then redeploy.
+        </div>
+      )}
+      {!window.isSecureContext && (
+        <div style={{ background:"#fff3cd", border:"1px solid #ffeeba", padding:12, borderRadius:8 }}>
+          Wallets require a secure context (HTTPS). Use your Vercel URL (https), not localhost over http.
         </div>
       )}
 
@@ -143,15 +173,24 @@ export default function PaymentForm() {
                placeholder="e.g., 3305551234" style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd" }}/>
       </div>
 
-      {/* Card mounts only when SDK + envs are present */}
+      {/* Card */}
       <div id="card-container" className="border rounded p-4" />
+      <button onClick={onPayCard} className="px-4 py-2 rounded bg-black text-white" disabled={!card}>Pay with Card</button>
 
-      {/* Wallet buttons */}
-      <div style={{ display:"flex", gap:8, flexWrap:"wrap" }}>
-        <button onClick={onPayCard} className="px-4 py-2 rounded bg-black text-white" disabled={!card}>Pay with Card</button>
-        <button id="apple-pay-button" style={{ display:"none", alignItems:"center", gap:6, padding:"8px 12px", borderRadius:8, border:"1px solid #ddd", background:"#fff" }}> Pay</button>
-        <button id="google-pay-button" style={{ display:"none", alignItems:"center", gap:6, padding:"8px 12px", borderRadius:8, border:"1px solid #ddd", background:"#fff" }}>Google Pay</button>
-        <button id="cash-app-pay-button" style={{ display:"none", alignItems:"center", gap:6, padding:"8px 12px", borderRadius:8, border:"1px solid #ddd", background:"#fff" }}>Cash App Pay</button>
+      {/* Wallet containers rendered by the SDK */}
+      <div style={{ display:"grid", gap:10, marginTop:12 }}>
+        <div id="apple-pay-container" />
+        {!appleAvailable && (
+          <div style={{ fontSize:12, opacity:.7 }}>Apple Pay not available on this device/browser.</div>
+        )}
+
+        <div id="google-pay-container" />
+        {!googleAvailable && (
+          <div style={{ fontSize:12, opacity:.7 }}>Google Pay not available on this device/browser.</div>
+        )}
+
+        <div id="cash-app-pay-container" />
+        {/* Cash App Pay generally appears; if it doesn't, SDK may hide the element quietly */}
       </div>
 
       {/* Hydration-safe total */}
