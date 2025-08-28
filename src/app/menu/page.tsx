@@ -54,17 +54,26 @@ export default function MenuPage() {
       )}
 
       <div style={{ display: "grid", gap: 16 }}>
-        {menu.map((m) => (
+        {menu.map((m, idx) => (
           <div key={m.id} style={{ background:"#fff", borderRadius:12, padding:16, boxShadow:"0 2px 8px rgba(0,0,0,.08)" }}>
             {m.imageUrl && (
-              <div style={{ position:"relative", width:"100%", height:220, marginBottom:10 }}>
+              <div
+                style={{
+                  position:"relative",
+                  width:"100%",
+                  aspectRatio:"4 / 3",   // keeps shape without stretching
+                  borderRadius:12,
+                  overflow:"hidden",
+                  marginBottom:10
+                }}
+              >
                 <Image
                   src={m.imageUrl}
                   alt={m.name}
                   fill
-                  sizes="(max-width: 980px) 100vw, 980px"
-                  style={{ objectFit:"cover", borderRadius:12 }}
-                  priority={false}
+                  sizes="(max-width: 640px) 100vw, (max-width: 980px) 90vw, 980px"
+                  style={{ objectFit:"cover", objectPosition:"center" }}
+                  priority={idx < 2}  // eager-load first couple for snappy LCP
                 />
               </div>
             )}
