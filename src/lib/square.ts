@@ -1,10 +1,23 @@
+import type {
+  ListLocationsResponse,
+  ListCatalogResponse,
+  SearchOrdersRequest,
+  Order,
+  CreateOrderRequest,
+  CreateOrderResponse,
+  CreatePaymentRequest,
+  CreatePaymentResponse,
+  OrderLineItem,
+  Money,
+} from "@/types/square";
+
 const BASE_URL =
   process.env.SQUARE_ENV === "production"
     ? "https://connect.squareup.com/v2"
     : "https://connect.squareupsandbox.com/v2";
 
-// Generic fetch with auth + version headers
-async function sqFetch(path: string, init: RequestInit = {}) {
+/** Generic fetch with auth + version headers and typed JSON response */
+async function sqFetch<TResp>(path: string, init: RequestInit = {}): Promise<TResp> {
   const res = await fetch(BASE_URL + path, {
     ...init,
     headers: {
@@ -13,44 +26,48 @@ async function sqFetch(path: string, init: RequestInit = {}) {
       "Square-Version": process.env.SQUARE_API_VERSION || "2025-01-23",
       ...(init.headers || {}),
     },
-    // ensure Node runtime
-    cache: "no-store" as any,
+    cache: "no-store",
   });
   if (!res.ok) {
     const text = await res.text().catch(() => "");
     throw new Error(`Square API ${res.status} ${res.statusText}: ${text || "<no body>"}`);
   }
-  return res.json();
+  return res.json() as Promise<TResp>;
 }
 
-// Map camelCase line items from UI to Square snake_case
-function normalizeLineItems(lineItems: any[] = []) {
+/** Normalize UI cart lines (camelCase) to Square OrderLineItem (snake_case converted by API layer) */
+function normalizeLineItems(lineItems: Array<{
+  name?: string;
+  quantity?: string | number;
+  basePriceMoney?: Money;
+  base_price_money?: Money;
+  catalogObjectId?: string;
+  catalog_object_id?: string;
+}> = []): OrderLineItem[] {
   return lineItems.map((li) => {
-    const out: any = {
+    const out: OrderLineItem = {
       name: li.name,
-      quantity: String(li.quantity || li.qty || "1"),
+      quantity: String(li.quantity ?? 1),
     };
-    // price can arrive as camelCase or snake_case
-    const bpm = li.basePriceMoney || li.base_price_money;
+    const bpm = li.basePriceMoney ?? li.base_price_money;
     if (bpm?.amount && bpm?.currency) {
       out.base_price_money = { amount: Number(bpm.amount), currency: String(bpm.currency) };
     }
-    // support catalogObjectId if provided
-    if (li.catalogObjectId || li.catalog_object_id) {
-      out.catalog_object_id = li.catalog_object_id || li.catalogObjectId;
+    if (li.catalog_object_id || li.catalogObjectId) {
+      out.catalog_object_id = li.catalog_object_id ?? li.catalogObjectId;
     }
     return out;
   });
 }
 
 export const SquareAPI = {
-  listLocations: () => sqFetch("/locations"),
-  listCatalog: () => sqFetch("/catalog/list?types=ITEM,ITEM_VARIATION"),
-  searchOrders: (body: any) =>
+  listLocations: (): Promise<ListLocationsResponse> => sqFetch("/locations"),
+  listCatalog: (): Promise<ListCatalogResponse> => sqFetch("/catalog/list?types=ITEM,ITEM_VARIATION,IMAGE"),
+  searchOrders: (body: SearchOrdersRequest): Promise<{ orders?: Order[] }> =>
     sqFetch("/orders/search", { method: "POST", body: JSON.stringify(body) }),
-  createOrder: (body: any) =>
+  createOrder: (body: CreateOrderRequest): Promise<CreateOrderResponse> =>
     sqFetch("/orders", { method: "POST", body: JSON.stringify(body) }),
-  createPayment: (body: any) =>
+  createPayment: (body: CreatePaymentRequest): Promise<CreatePaymentResponse> =>
     sqFetch("/payments", { method: "POST", body: JSON.stringify(body) }),
   normalizeLineItems,
 };

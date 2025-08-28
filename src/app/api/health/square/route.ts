@@ -1,7 +1,8 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import { SquareAPI } from "../../../../lib/square";
+import { SquareAPI } from "@/lib/square";
+import type { CatalogObject, ListCatalogResponse, ListLocationsResponse } from "@/types/square";
 
 type Check = { name: string; ok: boolean; detail?: string };
 
@@ -34,34 +35,36 @@ export async function GET() {
 
     // Connectivity checks (REST)
     try {
-      const locs: any = await SquareAPI.listLocations();
-      const list = locs.locations || [];
+      const locs = (await SquareAPI.listLocations()) as ListLocationsResponse;
+      const list = locs.locations ?? [];
       push("square:locations access", list.length > 0, "found " + list.length);
 
       const locId = process.env.SQUARE_LOCATION_ID!;
-      const loc = list.find((l: any) => l.id === locId);
-      push("square:location match", !!loc, loc ? (loc.name + " (" + loc.id + ")") : ("Missing " + locId));
+      const loc = list.find((l) => l.id === locId);
+      push("square:location match", !!loc, loc ? `${loc.name ?? "Location"} (${loc.id})` : `Missing ${locId}`);
 
-      const cats: any = await SquareAPI.listCatalog();
-      push("square:catalog read", true, "objects: " + ((cats.objects || []).length));
+      const cats = (await SquareAPI.listCatalog()) as ListCatalogResponse;
+      const objects: CatalogObject[] = cats.objects ?? [];
+      push("square:catalog read", true, "objects: " + objects.length);
 
       const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
-      const orders: any = await SquareAPI.searchOrders({
+      const orders = await SquareAPI.searchOrders({
         location_ids: [locId],
         query: { filter: { date_time_filter: { created_at: { start_at: since } } } },
         limit: 1,
-        return_entries: false
+        return_entries: false,
       });
-      push("square:orders read", true, "orders: " + ((orders.orders || []).length));
+      push("square:orders read", true, "orders: " + (orders.orders?.length ?? 0));
 
       push("square:api version pinned", !!process.env.SQUARE_API_VERSION, process.env.SQUARE_API_VERSION);
-    } catch (e: any) {
-      push("square:client error", false, e?.message || String(e));
+    } catch (e) {
+      push("square:client error", false, e instanceof Error ? e.message : String(e));
     }
 
-    const ok = checks.every(c => c.ok);
+    const ok = checks.every((c) => c.ok);
     return NextResponse.json({ ok, checks });
-  } catch (err: any) {
-    return NextResponse.json({ ok: false, error: err?.message || String(err) }, { status: 500 });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
   }
 }

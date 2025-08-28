@@ -2,80 +2,74 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import { SquareAPI } from "@/lib/square";
+import type { CatalogObject, ListCatalogResponse } from "@/types/square";
 
-/**
- * Returns a normalized menu:
- * [
- *   {
- *     id, name, description, imageUrl?,
- *     variations: [{ id, name, price: { amount, currency } }]
- *   }, ...
- * ]
- */
+export interface MenuVariation {
+  id: string;
+  name: string;
+  price: { amount: number; currency: string };
+}
+export interface MenuItem {
+  id: string;
+  name: string;
+  description?: string;
+  imageUrl?: string;
+  variations: MenuVariation[];
+}
+
 export async function GET() {
   try {
-    const cat: any = await SquareAPI.listCatalog();
-    const objs = cat.objects || [];
+    const cat = (await SquareAPI.listCatalog()) as ListCatalogResponse;
+    const objs: CatalogObject[] = cat.objects ?? [];
 
-    const items = objs.filter((o: any) => o.type === "ITEM");
-    const vars  = objs.filter((o: any) => o.type === "ITEM_VARIATION");
-    const imgs  = objs.filter((o: any) => o.type === "IMAGE");
+    const items = objs.filter((o) => o.type === "ITEM");
+    const vars  = objs.filter((o) => o.type === "ITEM_VARIATION");
+    const imgs  = objs.filter((o) => o.type === "IMAGE");
 
-    // map id -> image url
-    const imageMap: Record<string, string> = {};
+    const imageMap = new Map<string, string>();
     for (const im of imgs) {
-      const url =
-        im.image_data?.url ||
-        im.image_data?.full_url || // safety
-        im?.data?.url || "";       // super-safety
-      if (im.id && url) imageMap[im.id] = url;
+      const url = im.image_data?.url ?? im.image_data?.full_url ?? "";
+      if (im.id && url) imageMap.set(im.id, url);
     }
 
-    // map varId -> varObject
-    const varMap: Record<string, any> = {};
-    for (const v of vars) varMap[v.id] = v;
+    const varMap = new Map<string, CatalogObject>();
+    for (const v of vars) varMap.set(v.id, v);
 
-    const menu = items.map((it: any) => {
-      const data = it.item_data || {};
-      const vIds = (data.variations || []).map((v: any) => v.id);
+    const menu: MenuItem[] = items.map((it) => {
+      const data = it.item_data ?? {};
+      const vIds = (data.variations ?? []).map((v) => v.id);
 
-      // pick an image for the item
-      let imageUrl: string | undefined = undefined;
-      const imageIds: string[] =
-        (data.image_ids as string[]) ||
-        (data.imageIds as string[]) ||
-        [];
-      if (imageIds.length > 0) {
-        // use the first available image id that resolves
-        for (const iid of imageIds) {
-          if (imageMap[iid]) { imageUrl = imageMap[iid]; break; }
-        }
+      let imageUrl: string | undefined;
+      const imageIds = (data.image_ids ?? []);
+      for (const iid of imageIds) {
+        const url = imageMap.get(iid);
+        if (url) { imageUrl = url; break; }
       }
-      // fallback to legacy image_url field if present
       if (!imageUrl && data.image_url) imageUrl = data.image_url;
 
-      const variations = vIds.map((id: string) => {
-        const v = varMap[id];
-        const vd = v?.item_variation_data || {};
-        const money = vd.price_money || {};
+      const variations: MenuVariation[] = vIds.map((id) => {
+        const v = varMap.get(id);
+        const vd = v?.item_variation_data ?? {};
+        const money = vd.price_money ?? { amount: 0, currency: "USD" };
         return {
           id,
-          name: vd.name || data.name || "Variation",
-          price: { amount: Number(money.amount || 0), currency: money.currency || "USD" },
+          name: vd.name ?? data.name ?? "Variation",
+          price: { amount: Number(money.amount ?? 0), currency: money.currency ?? "USD" },
         };
       });
 
       return {
         id: it.id,
-        name: data.name || "Item",
-        description: data.description || "",
+        name: data.name ?? "Item",
+        description: data.description ?? "",
         imageUrl,
         variations,
       };
     });
 
     return NextResponse.json({ ok: true, menu });
-  } catch (e: any) {
-    return NextResponse.json({ ok: false, menu: [], error: e?.message || String(e) }, { status: 500 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, menu: [], error: msg }, { status: 500 });
   }
 }

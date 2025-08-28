@@ -1,6 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
+import type { ListLocationsResponse } from "@/types/square";
 
 const BASE_URL =
   process.env.SQUARE_ENV === "production"
@@ -14,8 +15,8 @@ export async function GET() {
       "Square-Version": process.env.SQUARE_API_VERSION || "2025-01-23",
       "Content-Type": "application/json",
     },
-    cache: "no-store" as any,
+    cache: "no-store",
   });
-  const data = await res.json().catch(() => ({}));
+  const data = (await res.json()) as ListLocationsResponse;
   return NextResponse.json({ ok: res.ok, status: res.status, data });
 }
