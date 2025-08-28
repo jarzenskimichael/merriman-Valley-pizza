@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import Image from "next/image";
 
 type Variation = { id: string; name: string; price: { amount: number; currency: string } };
 type MenuItem = { id: string; name: string; description?: string; imageUrl?: string; variations: Variation[] };
@@ -56,7 +57,16 @@ export default function MenuPage() {
         {menu.map((m) => (
           <div key={m.id} style={{ background:"#fff", borderRadius:12, padding:16, boxShadow:"0 2px 8px rgba(0,0,0,.08)" }}>
             {m.imageUrl && (
-              <img src={m.imageUrl} alt={m.name} style={{ width:"100%", height: 220, objectFit:"cover", borderRadius:12, marginBottom: 10 }} />
+              <div style={{ position:"relative", width:"100%", height:220, marginBottom:10 }}>
+                <Image
+                  src={m.imageUrl}
+                  alt={m.name}
+                  fill
+                  sizes="(max-width: 980px) 100vw, 980px"
+                  style={{ objectFit:"cover", borderRadius:12 }}
+                  priority={false}
+                />
+              </div>
             )}
             <div style={{ fontWeight: 700, fontSize: 18 }}>{m.name}</div>
             {m.description && <div style={{ opacity:.8, margin:"6px 0 8px" }}>{m.description}</div>}
