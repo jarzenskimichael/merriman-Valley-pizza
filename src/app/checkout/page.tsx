@@ -1,4 +1,6 @@
-export const dynamic = "force-dynamic"; // avoid SSG/ISR; wallets must run client-side
+export const dynamic = "force-dynamic";   // disable SSG/ISR
+export const revalidate = 0;              // always render on request
+export const runtime = "nodejs";          // ensure Node runtime
 
 import PaymentForm from "./PaymentForm";
 

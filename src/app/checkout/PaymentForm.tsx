@@ -4,7 +4,12 @@ import { useEffect, useMemo, useState } from "react";
 declare global { interface Window { Square?: any } }
 
 const CART_KEY = "mvp_cart";
-function loadCart() { try { return JSON.parse(typeof window !== "undefined" ? (localStorage.getItem(CART_KEY) || "[]") : "[]"); } catch { return []; } }
+function loadCart() {
+  try {
+    if (typeof window === "undefined") return [];
+    return JSON.parse(localStorage.getItem(CART_KEY) || "[]");
+  } catch { return []; }
+}
 function cartToLineItems(cart: any[]) {
   const arr = cart.length > 0 ? cart : [
     { name: "Large Pepperoni Pizza", quantity: 1, basePriceMoney: { amount: 1999, currency: "USD" } }
@@ -39,20 +44,18 @@ export default function PaymentForm() {
   const locationId = process.env.NEXT_PUBLIC_SQUARE_LOCATION_ID;
   const jsSrc = process.env.NEXT_PUBLIC_SQUARE_JS_SRC || "https://sandbox.web.squarecdn.com/v1/square.js";
 
-  // Hydration-safe cart
   const [cart, setCart] = useState<any[] | null>(null);
   const total = useMemo(() => cart ? cartTotalCents(cart) : 0, [cart]);
 
   useEffect(() => {
     setCart(loadCart());
-    // compute secure context on client
-    setSecureContext(typeof window !== "undefined" && window.isSecureContext === true);
+    if (typeof window !== "undefined") setSecureContext(window.isSecureContext === true);
   }, []);
 
   useEffect(() => {
-    // Only run on client, with required envs
+    if (typeof document === "undefined") return; // SSR guard
     if (!appId || !locationId) return;
-    // Load SDK
+
     const script = document.createElement("script");
     script.src = jsSrc;
     script.async = true;
@@ -60,16 +63,15 @@ export default function PaymentForm() {
       const p = await window.Square?.payments(appId, locationId);
       setPayments(p);
 
-      // CARD (works even if not secure context)
+      // Card
       try {
         const c = await p.card();
         await c.attach("#card-container");
         setCard(c);
       } catch (e) { console.warn("card attach error", e); }
 
-      // Wallets require secure context
       if (secureContext) {
-        // APPLE PAY
+        // Apple Pay
         try {
           const ap = await p.applePay();
           const can = await ap?.canMakePayment();
@@ -88,7 +90,7 @@ export default function PaymentForm() {
           }
         } catch (e) { console.warn("applePay error", e); }
 
-        // GOOGLE PAY
+        // Google Pay
         try {
           const gp = await p.googlePay();
           const can = await gp?.canMakePayment();
@@ -107,7 +109,7 @@ export default function PaymentForm() {
           }
         } catch (e) { console.warn("googlePay error", e); }
 
-        // CASH APP PAY
+        // Cash App Pay
         try {
           const cap = await p.cashAppPay({
             redirectURL: window.location.origin + "/checkout",
@@ -122,7 +124,6 @@ export default function PaymentForm() {
       }
     };
     document.body.appendChild(script);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId, locationId, jsSrc, total, secureContext]);
 
   async function completePaymentWithSource(sourceId: string) {
@@ -173,7 +174,7 @@ export default function PaymentForm() {
       <div id="card-container" className="border rounded p-4" />
       <button onClick={onPayCard} className="px-4 py-2 rounded bg-black text-white" disabled={!card}>Pay with Card</button>
 
-      {/* Wallet containers (render only after secureContext true) */}
+      {/* Wallet containers (only in secure contexts) */}
       {secureContext && (
         <div style={{ display:"grid", gap:10, marginTop:12 }}>
           <div id="apple-pay-container" />
