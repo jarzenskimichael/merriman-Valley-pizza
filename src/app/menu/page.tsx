@@ -57,23 +57,15 @@ export default function MenuPage() {
         {menu.map((m, idx) => (
           <div key={m.id} style={{ background:"#fff", borderRadius:12, padding:16, boxShadow:"0 2px 8px rgba(0,0,0,.08)" }}>
             {m.imageUrl && (
-              <div
-                style={{
-                  position:"relative",
-                  width:"100%",
-                  aspectRatio:"4 / 3",   // keeps shape without stretching
-                  borderRadius:12,
-                  overflow:"hidden",
-                  marginBottom:10
-                }}
-              >
+              <div style={{ position:"relative", width:"100%", borderRadius:12, overflow:"hidden", marginBottom:10 }}>
+                {/* Use intrinsic ratio; show full image without cropping */}
                 <Image
                   src={m.imageUrl}
                   alt={m.name}
-                  fill
+                  width={1200} height={800}             /* intrinsic ratio hint; any reasonable pair */
                   sizes="(max-width: 640px) 100vw, (max-width: 980px) 90vw, 980px"
-                  style={{ objectFit:"cover", objectPosition:"center" }}
-                  priority={idx < 2}  // eager-load first couple for snappy LCP
+                  style={{ width:"100%", height:"auto", objectFit:"contain", display:"block" }}
+                  priority={idx < 2}
                 />
               </div>
             )}
