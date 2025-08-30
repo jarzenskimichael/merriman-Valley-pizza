@@ -1,75 +1,61 @@
+import { NextResponse } from "next/server";
+import { makeSquareClient } from "@/lib/square";
+import { getInventoryMap } from "@/lib/inventory";
+
 export const runtime = "nodejs";
 
-import { NextResponse } from "next/server";
-import { SquareAPI } from "@/lib/square";
-import type { CatalogObject, ListCatalogResponse } from "@/types/square";
-
-export interface MenuVariation {
-  id: string;
-  name: string;
-  price: { amount: number; currency: string };
-}
-export interface MenuItem {
-  id: string;
-  name: string;
-  description?: string;
-  imageUrl?: string;
-  variations: MenuVariation[];
-}
-
 export async function GET() {
-  try {
-    const cat = (await SquareAPI.listCatalog()) as ListCatalogResponse;
-    const objs: CatalogObject[] = cat.objects ?? [];
+  const client = makeSquareClient();
+  const locationId = process.env.SQUARE_LOCATION_ID!;
+  // Pull items + variations + images
+  const cats = await client.catalogApi.listCatalog(undefined, "ITEM,ITEM_VARIATION,IMAGE");
+  const objs = cats.result.objects ?? [];
 
-    const items = objs.filter((o) => o.type === "ITEM");
-    const vars  = objs.filter((o) => o.type === "ITEM_VARIATION");
-    const imgs  = objs.filter((o) => o.type === "IMAGE");
-
-    const imageMap = new Map<string, string>();
-    for (const im of imgs) {
-      const url = im.image_data?.url ?? im.image_data?.full_url ?? "";
-      if (im.id && url) imageMap.set(im.id, url);
+  const images = new Map(objs.filter(o => o.type === "IMAGE").map(o => [o.id!, (o as any).imageData?.url as string]));
+  const variationsByItem = new Map<string, any[]>();
+  for (const v of objs.filter(o => o.type === "ITEM_VARIATION")) {
+    const itemId = (v.itemVariationData?.itemId || (v as any).itemVariationData?.itemId) as string | undefined;
+    if (itemId) {
+      const arr = variationsByItem.get(itemId) || [];
+      arr.push(v);
+      variationsByItem.set(itemId, arr);
     }
+  }
 
-    const varMap = new Map<string, CatalogObject>();
-    for (const v of vars) varMap.set(v.id, v);
+  const inv = await getInventoryMap();
 
-    const menu: MenuItem[] = items.map((it) => {
-      const data = it.item_data ?? {};
-      const vIds = (data.variations ?? []).map((v) => v.id);
+  const menu = objs
+    .filter(o => o.type === "ITEM")
+    .map(item => {
+      const id = item.id!;
+      const data: any = (item as any).itemData || {};
+      const imageUrl = data.imageIds?.length ? images.get(data.imageIds[0]) : undefined;
 
-      let imageUrl: string | undefined;
-      const imageIds = (data.image_ids ?? []);
-      for (const iid of imageIds) {
-        const url = imageMap.get(iid);
-        if (url) { imageUrl = url; break; }
-      }
-      if (!imageUrl && data.image_url) imageUrl = data.image_url;
-
-      const variations: MenuVariation[] = vIds.map((id) => {
-        const v = varMap.get(id);
-        const vd = v?.item_variation_data ?? {};
-        const money = vd.price_money ?? { amount: 0, currency: "USD" };
-        return {
-          id,
-          name: vd.name ?? data.name ?? "Variation",
-          price: { amount: Number(money.amount ?? 0), currency: money.currency ?? "USD" },
-        };
-      });
+      const variations = (variationsByItem.get(id) || [])
+        .map(v => {
+          const vid = v.id!;
+          const vdata: any = (v as any).itemVariationData || {};
+          const priceCents = Number(vdata.priceMoney?.amount ?? 0);
+          const qty = inv[vid]?.quantity ?? 0;
+          return {
+            id: vid,
+            name: vdata.name || "Default",
+            price: { amount: priceCents, currency: vdata.priceMoney?.currency || "USD" },
+            quantity: qty,
+            available: qty > 0,
+          };
+        })
+        // optional: keep sold-out ones visible but last
+        .sort((a: any, b: any) => Number(b.available) - Number(a.available));
 
       return {
-        id: it.id,
-        name: data.name ?? "Item",
-        description: data.description ?? "",
+        id,
+        name: data.name,
+        description: data.description || "",
         imageUrl,
         variations,
       };
     });
 
-    return NextResponse.json({ ok: true, menu });
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    return NextResponse.json({ ok: false, menu: [], error: msg }, { status: 500 });
-  }
+  return NextResponse.json({ menu, locationId, updatedAt: new Date().toISOString() }, { headers: { "Cache-Control": "no-store" } });
 }

@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 
-type Variation = { id: string; name: string; price: { amount: number; currency: string } };
+type Variation = { id: string; name: string; price: { amount: number; currency: string }, quantity?: number, available?: boolean };
 type MenuItem = { id: string; name: string; description?: string; imageUrl?: string; variations: Variation[] };
 type CartLine = { name: string; quantity: number; basePriceMoney: { amount: number; currency: string } };
 
@@ -25,7 +25,27 @@ export default function MenuPage() {
     } finally { setLoading(false); }
   })(); }, []);
 
+  // Poll inventory periodically to keep buttons fresh
+  useEffect(() => {
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch("/api/inventory", { cache: "no-store" });
+        const j = await r.json();
+        const map: Record<string, { quantity: number }> = j.inv || {};
+        setMenu(prev => prev.map(item => ({
+          ...item,
+          variations: item.variations.map(v => {
+            const qty = map[v.id]?.quantity ?? v.quantity ?? 0;
+            return { ...v, quantity: qty, available: qty > 0 };
+          }).sort((a,b)=> Number(b.available) - Number(a.available))
+        })));
+      } catch {}
+    }, 20000); // 20s
+    return () => clearInterval(t);
+  }, []);
+
   function addToCart(v: Variation, parentName: string) {
+    if (v.available === false) return;
     const line: CartLine = {
       name: `${parentName} — ${v.name}`,
       quantity: 1,
@@ -39,7 +59,9 @@ export default function MenuPage() {
   function inc(i: number) { const n=[...cart]; n[i].quantity++; setCart(n); saveCart(n); }
   function dec(i: number) { const n=[...cart]; n[i].quantity=Math.max(1,n[i].quantity-1); setCart(n); saveCart(n); }
   function remove(i: number) { const n=cart.filter((_,j)=>j!==i); setCart(n); saveCart(n); }
+
   const subtotal = cart.reduce((s,l)=> s + l.basePriceMoney.amount * l.quantity, 0);
+  const subtotalDisplay = cart.length === 0 ? "$0" : moneyFmt(subtotal);
 
   return (
     <main style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
@@ -68,16 +90,28 @@ export default function MenuPage() {
                 />
               </div>
             )}
-            <div style={{ fontWeight: 700, fontSize: 18 }}>{m.name}</div>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <div style={{ fontWeight: 700, fontSize: 18 }}>{m.name}</div>
+            </div>
             {m.description && <div style={{ opacity:.8, margin:"6px 0 8px" }}>{m.description}</div>}
             <div style={{ display:"flex", flexWrap:"wrap", gap:8 }}>
               {m.variations.map(v => (
                 <button
                   key={v.id}
                   onClick={()=>addToCart(v, m.name)}
-                  style={{ padding:"8px 12px", borderRadius:10, border:"1px solid #ddd", background:"#fafafa", cursor:"pointer" }}
+                  disabled={v.available === false}
+                  title={v.available === false ? "Sold out" : "Add to cart"}
+                  style={{
+                    padding:"8px 12px",
+                    borderRadius:10,
+                    border:"1px solid #ddd",
+                    background: v.available === false ? "#f3f4f6" : "#fafafa",
+                    color: v.available === false ? "#9ca3af" : "inherit",
+                    cursor: v.available === false ? "not-allowed" : "pointer",
+                  }}
                 >
                   {v.name} • {moneyFmt(v.price.amount)}
+                  {v.available === false && <span style={{ marginLeft:8, fontSize:12, fontWeight:700, color:"#b91c1c" }}>Sold out</span>}
                 </button>
               ))}
               {m.variations.length === 0 && <div style={{ opacity:.7 }}>No variations with price.</div>}
@@ -86,15 +120,16 @@ export default function MenuPage() {
         ))}
       </div>
 
-      {/* Sticky cart with icon logo */}
+      {/* Sticky cart */}
       <div style={{
         position:"sticky", bottom: 0, background:"#111", color:"#fff",
         marginTop: 24, borderRadius:12, padding:12
       }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", gap:12, flexWrap:"wrap" }}>
           <div style={{ display:"flex", alignItems:"center", gap:10 }}>
-            <Image src="/logo-icon.jpg" alt="MVPizza" width={28} height={28} style={{ borderRadius:6 }} />
-            <div style={{ fontWeight:700 }}>Cart • {cart.length} items • {moneyFmt(subtotal)}</div>
+            {/* If your icon is missing for now, this safely renders nothing */}
+            {/* <Image src="/logo-icon.jpg" alt="MVPizza" width={28} height={28} style={{ borderRadius:6 }} /> */}
+            <div style={{ fontWeight:700 }}>Cart • {cart.length} items • {subtotalDisplay}</div>
           </div>
           <div>
             <a href="/checkout" style={{ background:"#fff", color:"#111", padding:"8px 12px", borderRadius:8, textDecoration:"none" }}>
@@ -102,25 +137,6 @@ export default function MenuPage() {
             </a>
           </div>
         </div>
-
-        {cart.length > 0 && (
-          <div style={{ marginTop:10, display:"grid", gap:8 }}>
-            {cart.map((l, i) => (
-              <div key={i} style={{ display:"flex", justifyContent:"space-between", alignItems:"center", background:"#1b1b1b", borderRadius:8, padding:"8px 10px" }}>
-                <div>
-                  <div style={{ fontWeight:600 }}>{l.name}</div>
-                  <div style={{ opacity:.8, fontSize:12 }}>{moneyFmt(l.basePriceMoney.amount)} each</div>
-                </div>
-                <div style={{ display:"flex", alignItems:"center", gap:8 }}>
-                  <button onClick={()=>dec(i)} style={{ background:"#333", color:"#fff", border:"none", borderRadius:6, padding:"4px 8px" }}>−</button>
-                  <div>{l.quantity}</div>
-                  <button onClick={()=>inc(i)} style={{ background:"#333", color:"#fff", border:"none", borderRadius:6, padding:"4px 8px" }}>+</button>
-                  <button onClick={()=>remove(i)} style={{ background:"#ef4444", color:"#fff", border:"none", borderRadius:6, padding:"4px 8px" }}>Remove</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </main>
   );
