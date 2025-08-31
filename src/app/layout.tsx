@@ -1,7 +1,7 @@
 import React from "react";
 
 export const metadata = {
-  title: "Merriman Valley Pizza",
+  title: "Merriman Valley Pizza — LIVE CHECK",
   description: "Square-integrated demo",
 };
 
