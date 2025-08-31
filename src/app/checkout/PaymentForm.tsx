@@ -23,6 +23,7 @@ export default function PaymentForm() {
   const [appleAvailable, setAppleAvailable] = useState(false);
   const [googleAvailable, setGoogleAvailable] = useState(false);
   const [secureContext, setSecureContext] = useState(false);
+
   const [pickupName, setPickupName] = useState("");
   const [pickupPhone, setPickupPhone] = useState("");
 
@@ -33,6 +34,7 @@ export default function PaymentForm() {
   const [cart, setCart] = useState<any[] | null>(null);
   const total = useMemo(() => cart ? cartTotalCents(cart) : 0, [cart]);
 
+  const scriptAddedRef = useRef(false);
   const cardMountedRef = useRef(false);
   const walletsMountedRef = useRef(false);
 
@@ -45,14 +47,23 @@ export default function PaymentForm() {
     if (typeof document === "undefined") return;
     if (!appId || !locationId) return;
 
-    const script = document.createElement("script");
-    script.src = jsSrc;
-    script.async = true;
-    script.onload = async () => {
+    // Add SDK script ONLY once
+    let script = document.querySelector('script[data-square-sdk="v1"]') as HTMLScriptElement | null;
+    if (!script) {
+      script = document.createElement("script");
+      script.src = jsSrc;
+      script.async = true;
+      script.setAttribute("data-square-sdk", "v1");
+      document.body.appendChild(script);
+    }
+
+    const onload = async () => {
       const p = await window.Square?.payments(appId, locationId);
       setPayments(p);
 
-      if (!cardMountedRef.current) {
+      // Attach card once, and only if container is empty
+      const cardContainer = document.getElementById("card-container");
+      if (!cardMountedRef.current && cardContainer && cardContainer.childElementCount === 0) {
         try {
           const c = await p.card();
           await c.attach("#card-container");
@@ -61,13 +72,14 @@ export default function PaymentForm() {
         } catch (e) { console.warn("card attach error", e); }
       }
 
+      // Wallets once (secure context only)
       if (secureContext && !walletsMountedRef.current) {
         try {
           const ap = await p.applePay();
-          const can = await ap?.canMakePayment();
-          setAppleAvailable(!!can);
-          if (can) {
-            const req = await p.paymentRequest({ countryCode: "US", currencyCode: "USD", total: { amount: ((total||0)/100).toFixed(2), label: "Merriman Valley Pizza" }});
+          const canAP = await ap?.canMakePayment();
+          setAppleAvailable(!!canAP);
+          if (canAP) {
+            const req = await p.paymentRequest({ countryCode:"US", currencyCode:"USD", total:{ amount: ((total||0)/100).toFixed(2), label:"Merriman Valley Pizza" }});
             await ap.attach("#apple-pay-container", { paymentRequest: req });
             ap.addEventListener("tokenization", async (ev: any) => { if (ev?.status === "OK" && ev?.token) await complete(ev.token); });
           }
@@ -75,10 +87,10 @@ export default function PaymentForm() {
 
         try {
           const gp = await p.googlePay();
-          const can = await gp?.canMakePayment();
-          setGoogleAvailable(!!can);
-          if (can) {
-            const req = await p.paymentRequest({ countryCode: "US", currencyCode: "USD", total: { amount: ((total||0)/100).toFixed(2), label: "Merriman Valley Pizza" }});
+          const canGP = await gp?.canMakePayment();
+          setGoogleAvailable(!!canGP);
+          if (canGP) {
+            const req = await p.paymentRequest({ countryCode:"US", currencyCode:"USD", total:{ amount: ((total||0)/100).toFixed(2), label:"Merriman Valley Pizza" }});
             await gp.attach("#google-pay-container", { paymentRequest: req });
             gp.addEventListener("tokenization", async (ev: any) => { if (ev?.status === "OK" && ev?.token) await complete(ev.token); });
           }
@@ -93,8 +105,16 @@ export default function PaymentForm() {
         walletsMountedRef.current = true;
       }
     };
-    document.body.appendChild(script);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+
+    if (!scriptAddedRef.current) {
+      script.addEventListener("load", onload, { once:true });
+      // In case SDK already cached/loaded:
+      if ((script as any).readyState === "complete" || (window as any).Square) onload();
+      scriptAddedRef.current = true;
+    } else if ((window as any).Square) {
+      onload();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appId, locationId, jsSrc, secureContext]);
 
   async function complete(sourceId: string) {
@@ -103,8 +123,13 @@ export default function PaymentForm() {
       body: JSON.stringify({ sourceId, lineItems: cartToLineItems(cart || []), pickupName, pickupPhone, pickupWhen: "ASAP", note: "Order from /menu" })
     });
     const data = await r.json();
-    if (data.ok) { if (typeof window !== "undefined") localStorage.removeItem(CART_KEY); alert("Payment successful!"); try { window.location.href = "/kds"; } catch {} }
-    else { alert(`Payment failed: ${data.error ?? ""}`); }
+    if (data.ok) {
+      if (typeof window !== "undefined") localStorage.removeItem(CART_KEY);
+      alert("Payment successful!");
+      try { window.location.href = "/kds"; } catch {}
+    } else {
+      alert(`Payment failed: ${data.error ?? ""}`);
+    }
   }
 
   async function onPayCard() {
@@ -117,12 +142,14 @@ export default function PaymentForm() {
   return (
     <div className="space-y-4">
       <div>
-        <label style={{ display: "block", fontWeight: 600 }}>Pickup Name</label>
-        <input value={pickupName} onChange={(e) => setPickupName(e.target.value)} placeholder="e.g., Michael" style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd" }}/>
+        <label style={{ display:"block", fontWeight:600 }}>Pickup Name</label>
+        <input value={pickupName} onChange={(e)=>setPickupName(e.target.value)} placeholder="e.g., Michael"
+               style={{ width:"100%", padding:8, borderRadius:8, border:"1px solid #ddd" }}/>
       </div>
       <div>
-        <label style={{ display: "block", fontWeight: 600 }}>Phone</label>
-        <input value={pickupPhone} onChange={(e) => setPickupPhone(e.target.value)} placeholder="e.g., 3305551234" style={{ width: "100%", padding: 8, borderRadius: 8, border: "1px solid #ddd" }}/>
+        <label style={{ display:"block", fontWeight:600 }}>Phone</label>
+        <input value={pickupPhone} onChange={(e)=>setPickupPhone(e.target.value)} placeholder="e.g., 3305551234"
+               style={{ width:"100%", padding:8, borderRadius:8, border:"1px solid #ddd" }}/>
       </div>
 
       <div id="card-container" className="border rounded p-4" />

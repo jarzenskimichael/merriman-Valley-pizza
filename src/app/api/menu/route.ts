@@ -7,6 +7,7 @@ export const runtime = "nodejs";
 export async function GET() {
   const client = makeSquareClient();
   const locationId = process.env.SQUARE_LOCATION_ID!;
+  // Include ITEM, VARIATION, IMAGE so we can resolve everything in one go
   const cats = await client.catalogApi.listCatalog(undefined, "ITEM,ITEM_VARIATION,IMAGE");
   const objs = cats.result.objects ?? [];
 
@@ -21,6 +22,7 @@ export async function GET() {
     }
   }
 
+  // Inventory map by variation
   const inv = await getInventoryMap();
 
   const menu = objs
@@ -35,14 +37,15 @@ export async function GET() {
           const vid = v.id!;
           const vdata: any = (v as any).itemVariationData || {};
 
+          // Location override (Square "sold out" is set here per variation)
           const override = (vdata.locationOverrides || []).find((o: any) => o.locationId === locationId) || {};
           const soldOut = override.soldOut === true || !!override.soldOutUntil;
           const trackInventory = (override.trackInventory ?? vdata.trackInventory) === true;
+
           const qty = Number(inv[vid]?.quantity ?? 0);
-
           const available = soldOut ? false : (trackInventory ? qty > 0 : true);
-          const priceCents = Number(vdata.priceMoney?.amount ?? 0);
 
+          const priceCents = Number(vdata.priceMoney?.amount ?? 0);
           return {
             id: vid,
             name: vdata.name || "Default",
