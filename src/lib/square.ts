@@ -28,8 +28,5 @@ export function makeSquareClient(token?: string): Client {
   });
 }
 
-// Also export a default for flexibility
 export default makeSquareClient;
-
-// Optional aggregate (not required by our code, but handy)
 export const SquareAPI = { makeSquareClient };
