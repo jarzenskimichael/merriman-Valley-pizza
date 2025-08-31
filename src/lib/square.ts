@@ -2,6 +2,9 @@ import { Client, Environment } from "@square/square";
 
 /**
  * Create a configured Square client.
+ * - Uses SQUARE_ENV: sandbox | production
+ * - Uses SQUARE_ACCESS_TOKEN (unless an override token is provided)
+ * - Pins API version via SQUARE_API_VERSION (YYYY-MM-DD)
  */
 export function makeSquareClient(token?: string): Client {
   const envRaw = (process.env.SQUARE_ENV || "sandbox").toLowerCase();
@@ -25,5 +28,6 @@ export function makeSquareClient(token?: string): Client {
   });
 }
 
+// Optional aggregate export and default for flexibility
 export const SquareAPI = { makeSquareClient };
 export default makeSquareClient;
