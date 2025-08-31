@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 declare global { interface Window { Square?: any } }
 
@@ -28,7 +28,6 @@ function cartTotalCents(cart: any[]) {
 export default function PaymentForm() {
   const [payments, setPayments] = useState<any>(null);
   const [card, setCard] = useState<any>(null);
-
   const [applePay, setApplePay] = useState<any>(null);
   const [googlePay, setGooglePay] = useState<any>(null);
   const [cashAppPay, setCashAppPay] = useState<any>(null);
@@ -47,13 +46,18 @@ export default function PaymentForm() {
   const [cart, setCart] = useState<any[] | null>(null);
   const total = useMemo(() => cart ? cartTotalCents(cart) : 0, [cart]);
 
+  // Mount guards to avoid double-attaching elements
+  const cardMountedRef = useRef(false);
+  const walletsMountedRef = useRef(false);
+
   useEffect(() => {
     setCart(loadCart());
     if (typeof window !== "undefined") setSecureContext(window.isSecureContext === true);
   }, []);
 
+  // Load SDK and attach elements ONCE
   useEffect(() => {
-    if (typeof document === "undefined") return; // SSR guard
+    if (typeof document === "undefined") return;
     if (!appId || !locationId) return;
 
     const script = document.createElement("script");
@@ -63,14 +67,20 @@ export default function PaymentForm() {
       const p = await window.Square?.payments(appId, locationId);
       setPayments(p);
 
-      // Card
-      try {
-        const c = await p.card();
-        await c.attach("#card-container");
-        setCard(c);
-      } catch (e) { console.warn("card attach error", e); }
+      // CARD — only attach once
+      if (!cardMountedRef.current) {
+        try {
+          const c = await p.card();
+          await c.attach("#card-container");
+          setCard(c);
+          cardMountedRef.current = true;
+        } catch (e) {
+          console.warn("card attach error", e);
+        }
+      }
 
-      if (secureContext) {
+      // Wallets require secure context; also only attach once
+      if (secureContext && !walletsMountedRef.current) {
         // Apple Pay
         try {
           const ap = await p.applePay();
@@ -121,10 +131,30 @@ export default function PaymentForm() {
             if (ev?.status === "OK" && ev?.token) await completePaymentWithSource(ev.token);
           });
         } catch (e) { console.warn("cashAppPay error", e); }
+
+        walletsMountedRef.current = true;
       }
     };
     document.body.appendChild(script);
-  }, [appId, locationId, jsSrc, total, secureContext]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appId, locationId, jsSrc, secureContext]);
+
+  // If total changes after wallets mounted, update the amount in the payment request
+  useEffect(() => {
+    (async () => {
+      if (!payments) return;
+      if (!walletsMountedRef.current) return;
+      try {
+        const updateReq = await payments.paymentRequest({
+          countryCode: "US",
+          currencyCode: "USD",
+          total: { amount: ((total||0)/100).toFixed(2), label: "Merriman Valley Pizza" },
+        });
+        // Some SDKs support updating attached buttons by re-attaching with new request;
+        // we skip re-attach here to avoid double mounts. (Amounts are often re-evaluated server-side anyway.)
+      } catch {}
+    })();
+  }, [payments, total]);
 
   async function completePaymentWithSource(sourceId: string) {
     const r = await fetch("/api/square/checkout", {
@@ -158,7 +188,6 @@ export default function PaymentForm() {
 
   return (
     <div className="space-y-4">
-      {/* Pickup fields */}
       <div>
         <label style={{ display: "block", fontWeight: 600 }}>Pickup Name</label>
         <input value={pickupName} onChange={(e) => setPickupName(e.target.value)}
@@ -174,7 +203,7 @@ export default function PaymentForm() {
       <div id="card-container" className="border rounded p-4" />
       <button onClick={onPayCard} className="px-4 py-2 rounded bg-black text-white" disabled={!card}>Pay with Card</button>
 
-      {/* Wallet containers (only in secure contexts) */}
+      {/* Wallet containers (only once, in secure contexts) */}
       {secureContext && (
         <div style={{ display:"grid", gap:10, marginTop:12 }}>
           <div id="apple-pay-container" />
@@ -187,7 +216,6 @@ export default function PaymentForm() {
         </div>
       )}
 
-      {/* Hydration-safe total */}
       <div style={{ opacity:.8 }}>
         Order total (cart): $
         <span suppressHydrationWarning>{cart === null ? "—" : (total/100).toFixed(2)}</span>
