@@ -21,7 +21,6 @@ export async function GET() {
     }
   }
 
-  // Pull inventory counts as a secondary signal
   const inv = await getInventoryMap();
 
   const menu = objs
@@ -36,21 +35,14 @@ export async function GET() {
           const vid = v.id!;
           const vdata: any = (v as any).itemVariationData || {};
 
-          // Location override flags (this is how “Mark as sold out” works in Square UI)
           const override = (vdata.locationOverrides || []).find((o: any) => o.locationId === locationId) || {};
-          const soldOut = override.soldOut === true || override.soldOutUntil; // either explicitly sold out or until a time
+          const soldOut = override.soldOut === true || !!override.soldOutUntil;
           const trackInventory = (override.trackInventory ?? vdata.trackInventory) === true;
-
-          // Inventory quantity (if tracked)
           const qty = Number(inv[vid]?.quantity ?? 0);
 
-          // Availability logic:
-          // - Sold out override wins
-          // - Else, if tracking inventory, qty > 0
-          // - Else, available
           const available = soldOut ? false : (trackInventory ? qty > 0 : true);
-
           const priceCents = Number(vdata.priceMoney?.amount ?? 0);
+
           return {
             id: vid,
             name: vdata.name || "Default",
