@@ -8,7 +8,6 @@ export async function getInventoryMap(): Promise<Record<string, { quantity: numb
   const loc = process.env.SQUARE_LOCATION_ID!;
   const map: Record<string, { quantity: number }> = {};
 
-  // Pull current inventory counts for the location
   const res = await client.inventoryApi.batchRetrieveInventoryCounts({
     locationIds: [loc],
     states: ["IN_STOCK"],
